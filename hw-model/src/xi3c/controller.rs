@@ -205,9 +205,27 @@ impl Controller {
             byte_count: 0,
             tid: 0,
         };
-        // Disable Target Events
+        // Disable Target Events — retry with escalating delay up to 10 seconds
+        // in case the device is not ready yet (NACK).
+        println!("XI3C: Waiting 10s before DISEC to allow device to become ready");
+        std::thread::sleep(Duration::from_secs(10));
         println!("XI3C: Broadcast CCC DISEC");
         let result = self.send_transfer_cmd(&cmd, Ccc::Byte(XI3C_CCC_BRDCAST_DISEC));
+        /*
+        let result = {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut delay = Duration::from_millis(10);
+            loop {
+                let r = self.send_transfer_cmd(&cmd, Ccc::Byte(XI3C_CCC_BRDCAST_DISEC));
+                if r.is_ok() || Instant::now() >= deadline {
+                    break r;
+                }
+                println!("XI3C: DISEC failed, retrying after {:?}", delay);
+                self.reset();
+                std::thread::sleep(delay);
+                delay = (delay * 2).min(Duration::from_secs(1));
+            }
+        };*/
         if result.is_ok() {
             println!("XI3C: Acknowledge received");
         }
@@ -540,6 +558,9 @@ impl Controller {
         } else {
             t_hold = if t_hold < 6 { 6 } else { t_hold };
         }
+        println!("scl_high_time: {}", t_high.wrapping_sub(2) & 0x3ffff);
+        println!("scl_low_time:  {}", t_low.wrapping_sub(2) & 0x3ffff);
+        println!("sda_hold_time: {}", t_hold.wrapping_sub(2) & 0x3ffff);
         self.regs()
             .scl_high_time
             .set(t_high.wrapping_sub(2) & 0x3ffff);
@@ -578,6 +599,12 @@ impl Controller {
             } else {
                 t_high
             };
+            println!("Forcing od_scl_high_time to  be the same as scl_high_time");
+            od_t_high = t_high;
+            //println!("Forcing od_scl_low_time to  be the same as scl_low_time");
+            //od_t_low = t_low;
+            println!("od_scl_high_time: {}", od_t_high.wrapping_sub(2) & 0x3ffff);
+            println!("od_scl_low_time: {}",  od_t_low.wrapping_sub(2) & 0x3ffff);
             self.regs()
                 .od_scl_high_time
                 .set(od_t_high.wrapping_sub(2) & 0x3ffff);
@@ -592,6 +619,9 @@ impl Controller {
         let thd_start = if t_high > tcas_min { t_high } else { tcas_min };
         let tsu_start = if t_low > tcas_min { t_low } else { tcas_min };
         let tsu_stop = if t_low > tcas_min { t_low } else { tcas_min };
+        println!("tsu_start: {}",  tsu_start.wrapping_sub(2) & 0x3ffff);
+        println!("thd_start: {}",  thd_start.wrapping_sub(2) & 0x3ffff);
+        println!("tsu_stop:  {}",  tsu_stop.wrapping_sub(2) & 0x3ffff);
         self.regs()
             .tsu_start
             .set(tsu_start.wrapping_sub(2) & 0x3ffff);
@@ -600,7 +630,13 @@ impl Controller {
             .set(thd_start.wrapping_sub(2) & 0x3ffff);
         self.regs()
             .tsu_stop
-            .set(tsu_stop.wrapping_sub(2) & (0x3ffff + 5));
+            .set(tsu_stop.wrapping_sub(2) & 0x3ffff);
+
+        let bus_idle = input_clock_hz/769230;
+        println!("bus_idle: {}",  bus_idle);
+        self.regs()
+            .bus_idle
+            .set(bus_idle);
     }
 
     fn get_response(&self) -> Result<(), XI3cError> {
