@@ -205,6 +205,8 @@ impl Controller {
             byte_count: 0,
             tid: 0,
         };
+        println!("XI3C: Waiting 10s before DISEC to allow device to become ready");
+        std::thread::sleep(Duration::from_secs(10));
         // Disable Target Events
         println!("XI3C: Broadcast CCC DISEC");
         let result = self.send_transfer_cmd(&cmd, Ccc::Byte(XI3C_CCC_BRDCAST_DISEC));
